@@ -62,7 +62,7 @@ struct RBF {
    */
   Scalar operator()(const VectorX& x, const VectorX& y) {
     const auto& sqnorm = Algebra::sqnorm(x - y);
-    return Algebra::exp(-sqnorm / h);
+    return Algebra::exp(-sqnorm / (h * h * Algebra::two()));
   }
 
   /**
@@ -74,7 +74,7 @@ struct RBF {
    */
   std::pair<Scalar, VectorX> D01(const VectorX& x, const VectorX& y) {
     Scalar k = (*this)(x, y);
-    return {k, -Algebra::two() * k * (x - y) / h};
+    return {k, -k * (x - y) / (h * h)};
   }
 };
 }  // namespace kernels
@@ -94,8 +94,8 @@ void Step(const typename Algebra::Scalar& step_size, DLnProb dlnprob,
           typename Algebra::Scalar bandwidth = -1) {
   using Scalar = typename Algebra::Scalar;
   if (bandwidth < 0.) {
-    // use pairwise particle distance median as heuristic
-    // only compute the unique pairwise squared distances
+    // Use pairwise particle distance median as heuristic.
+    // Only compute the unique pairwise squared distances.
     std::vector<Scalar> dists(x0.size() * (x0.size() - 1) / 2);
     std::size_t di = 0;
     for (std::size_t i = 0; i < x0.size(); ++i) {
@@ -105,7 +105,7 @@ void Step(const typename Algebra::Scalar& step_size, DLnProb dlnprob,
     }
     std::sort(dists.begin(), dists.end());
     bandwidth = std::sqrt(Scalar(0.5) * dists[dists.size() / 2] /
-                          (x0.size() + Algebra::one()));
+                          Algebra::log((double)x0.size() + Algebra::one()));
   }
   Kernel<Algebra> kernel(bandwidth);
   for (int i = 0; i < x0.size(); ++i) {

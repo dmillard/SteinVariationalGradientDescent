@@ -3,14 +3,16 @@
 
 #pragma once
 
-template <typename Algebra> struct NormalDistribution {
+template <typename Algebra>
+struct NormalDistribution {
   using Scalar = typename Algebra::Scalar;
   using VectorX = typename Algebra::VectorX;
   VectorX mu;
   VectorX sigma;
   VectorX sqsigma;
   NormalDistribution(const VectorX &mu, const VectorX &sigma)
-      : mu(mu), sigma(sigma),
+      : mu(mu),
+        sigma(sigma),
         sqsigma((sigma.array() * sigma.array()).matrix()) {}
 
   VectorX CDF(const VectorX &x) const {
@@ -23,7 +25,8 @@ template <typename Algebra> struct NormalDistribution {
     Scalar logpdf =
         -Algebra::from_double(0.5) * Algebra::log(Algebra::norm(sigma));
     logpdf -= (x - mu).dot(((x - mu).array() / sigma.array()).matrix());
-    logpdf -= Algebra::size(x) * Algebra::log(Algebra::pi() * Algebra::from_double(2.));
+    logpdf -= Algebra::size(x) *
+              Algebra::log(Algebra::pi() * Algebra::from_double(2.));
     return logpdf;
   }
 
@@ -35,4 +38,4 @@ template <typename Algebra> struct NormalDistribution {
   }
 };
 
-#endif // DISTRIBUTIONS_H
+#endif  // DISTRIBUTIONS_H
