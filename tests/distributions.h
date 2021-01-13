@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <cmath>
-
 template <typename Algebra> struct NormalDistribution {
   using Scalar = typename Algebra::Scalar;
   using VectorX = typename Algebra::VectorX;
@@ -25,7 +23,7 @@ template <typename Algebra> struct NormalDistribution {
     Scalar logpdf =
         -Algebra::from_double(0.5) * Algebra::log(Algebra::norm(sigma));
     logpdf -= (x - mu).dot(((x - mu).array() / sigma.array()).matrix());
-    logpdf -= Algebra::size(x) * Algebra::log(Algebra::from_double(M_PI * 2));
+    logpdf -= Algebra::size(x) * Algebra::log(Algebra::pi() * Algebra::from_double(2.));
     return logpdf;
   }
 

@@ -3,6 +3,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 /* Copyright 2020 David Millard <dmillard10@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -69,7 +73,7 @@ struct RBF {
    * @returns A pair {k(x, y), dk/dx}
    */
   std::pair<Scalar, VectorX> D01(const VectorX& x, const VectorX& y) {
-    const auto& k = (*this)(x, y);
+    Scalar k = (*this)(x, y);
     return {k, -Algebra::two() * k * (x - y) / h};
   }
 };
@@ -86,14 +90,30 @@ struct RBF {
 template <typename Algebra, template <typename> typename Kernel,
           typename Particles, typename DLnProb>
 void Step(const typename Algebra::Scalar& step_size, DLnProb dlnprob,
-          const Particles& x0, Particles* x1) {
-  Kernel<Algebra> k(Algebra::one());
+          const Particles& x0, Particles* x1,
+          typename Algebra::Scalar bandwidth = -1) {
+  using Scalar = typename Algebra::Scalar;
+  if (bandwidth < 0.) {
+    // use pairwise particle distance median as heuristic
+    // only compute the unique pairwise squared distances
+    std::vector<Scalar> dists(x0.size() * (x0.size() - 1) / 2);
+    std::size_t di = 0;
+    for (std::size_t i = 0; i < x0.size(); ++i) {
+      for (std::size_t j = i + 1; j < x0.size(); ++j, ++di) {
+        dists[di] = Algebra::dot(x0[i], x0[j]);
+      }
+    }
+    std::sort(dists.begin(), dists.end());
+    bandwidth = std::sqrt(Scalar(0.5) * dists[dists.size() / 2] /
+                          (x0.size() + Algebra::one()));
+  }
+  Kernel<Algebra> kernel(bandwidth);
   for (int i = 0; i < x0.size(); ++i) {
     // Compute phi-star.
     (*x1)[i] = Algebra::zerox(x0[i].size());
-    for (int j = 0; j < x0.size(); ++j) {
+    for (std::size_t j = 0; j < x0.size(); ++j) {
       const auto& gradlnp = dlnprob(x0[j]);
-      const auto& [kxjxi, gradkxjxi] = k.D01(x0[j], x0[i]);
+      const auto& [kxjxi, gradkxjxi] = kernel.D01(x0[j], x0[i]);
       (*x1)[i] += kxjxi * gradlnp + gradkxjxi;
     }
     (*x1)[i] *= step_size / x0.size();
