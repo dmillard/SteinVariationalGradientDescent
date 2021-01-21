@@ -39,8 +39,7 @@
 namespace svgd {
 
 namespace kernels {
-template <typename Algebra>
-struct RBF {
+template <typename Algebra> struct RBF {
   using Scalar = typename Algebra::Scalar;
   using VectorX = typename Algebra::VectorX;
 
@@ -51,7 +50,7 @@ struct RBF {
    *
    * @param h Bandwidth of the RBF
    */
-  RBF(const Scalar& h) : h(h) {}
+  RBF(const Scalar &h) : h(h) {}
 
   /**
    * Computes an RBF similarity kernel between x and y
@@ -60,8 +59,8 @@ struct RBF {
    * @param y Second input point
    * @returns RBF kernel similarity between x and y
    */
-  Scalar operator()(const VectorX& x, const VectorX& y) {
-    const auto& sqnorm = Algebra::sqnorm(x - y);
+  Scalar operator()(const VectorX &x, const VectorX &y) {
+    const auto &sqnorm = Algebra::sqnorm(x - y);
     return Algebra::exp(-sqnorm / (h * h * Algebra::two()));
   }
 
@@ -72,12 +71,12 @@ struct RBF {
    * @param y Second input point
    * @returns A pair {k(x, y), dk/dx}
    */
-  std::pair<Scalar, VectorX> D01(const VectorX& x, const VectorX& y) {
+  std::pair<Scalar, VectorX> D01(const VectorX &x, const VectorX &y) {
     Scalar k = (*this)(x, y);
     return {k, -k * (x - y) / (h * h)};
   }
 };
-}  // namespace kernels
+} // namespace kernels
 
 template <typename Algebra,
           typename Particles = std::vector<typename Algebra::VectorX>>
@@ -88,6 +87,11 @@ struct SVGD {
   Scalar bandwidth{Algebra::from_double(-1)};
   Scalar step_size{Algebra::from_double(5e-3)};
 
+  /**
+   * Adaptive learning rate updated by Adam (not to be defined by the user).
+   */
+  Scalar learning_rate{Algebra::zero()};
+
   Scalar beta1{Algebra::from_double(0.9)};
   Scalar beta2{Algebra::from_double(0.999)};
 
@@ -95,13 +99,15 @@ struct SVGD {
 
   int step{0};
 
- private:
+  std::vector<std::pair<Scalar, Scalar>> parameter_bounds;
+
+private:
   // momentum
   Particles m_;
   // accumulates past gradient variance
   Particles v_;
 
- public:
+public:
   /**
    * Takes a single step of SVGD
    *
@@ -110,8 +116,10 @@ struct SVGD {
    * @param x1 Particles after step
    */
   template <template <typename> typename Kernel, typename DLnProb>
-  void Step(DLnProb dlnprob, const Particles& x0, Particles* x1) {
+  void Step(DLnProb dlnprob, const Particles &x0, Particles *x1) {
     using Scalar = typename Algebra::Scalar;
+    const Scalar one = Algebra::one();
+
     if (m_.size() != x0.size()) {
       // initialize
       m_ = std::vector<VectorX>(x0.size(), Algebra::zerox(x0[0].size()));
@@ -132,7 +140,7 @@ struct SVGD {
       }
       std::sort(dists.begin(), dists.end());
       bandwidth = std::sqrt(Scalar(0.5) * dists[dists.size() / 2] /
-                            Algebra::log((double)x0.size() + Algebra::one()));
+                            Algebra::log((double)x0.size() + one));
     }
     ++step;
     Kernel<Algebra> kernel(bandwidth);
@@ -140,24 +148,40 @@ struct SVGD {
       // Compute phi-star
       (*x1)[i] = Algebra::zerox(x0[i].size());
       for (std::size_t j = 0; j < x0.size(); ++j) {
-        const auto& gradlnp = dlnprob(x0[j]);
-        const auto& [kxjxi, gradkxjxi] = kernel.D01(x0[j], x0[i]);
+        const auto &gradlnp = dlnprob(x0[j]);
+        const auto &[kxjxi, gradkxjxi] = kernel.D01(x0[j], x0[i]);
         (*x1)[i] += kxjxi * gradlnp + gradkxjxi;
       }
       (*x1)[i] /= Algebra::from_double((double)x0.size());
 
       // Adam update
-      const auto& grad = (*x1)[i];
-      m_[i] = beta1 * m_[i] + (Algebra::one() - beta1) * grad;
-      v_[i] = beta2 * v_[i] + (Algebra::one() - beta1) * grad.array().square().matrix();
+      const auto &grad = (*x1)[i];
+      m_[i] = beta1 * m_[i] + (one - beta1) * grad;
+      v_[i] = beta2 * v_[i] + (one - beta1) * grad.array().square().matrix();
       Scalar t = Algebra::from_double((double)step);
-      VectorX mt = m_[i] / (Algebra::one() - Algebra::pow(beta1, t));
-      VectorX vt = v_[i] / (Algebra::one() - Algebra::pow(beta2, t));
-      (*x1)[i] = x0[i].array() + step_size * mt.array() / (vt.array().sqrt() + epsilon);
+      Scalar bias_correction1 = one / (one - Algebra::pow(beta1, t));
+      Scalar bias_correction2 = one / (one - Algebra::pow(beta2, t));
+      learning_rate =
+          step_size * bias_correction1 / Algebra::sqrt(bias_correction2);
+      // (*x1)[i] = x0[i].array() + step_size * mt.array() / (vt.array().sqrt()
+      // + epsilon);
+      for (int j = 0; j < x0[i].size(); ++j) {
+        Scalar delta =
+            learning_rate * m_[i][j] / (Algebra::sqrt(v_[i][j]) + epsilon);
+        (*x1)[i][j] = x0[i][j] + delta;
+        if (j < parameter_bounds.size()) {
+          double wouldbe = Algebra::to_double((*x1)[i][j]);
+          // flip derivative if particle dimension would be out of bounds
+          if (wouldbe < parameter_bounds[j].first ||
+              wouldbe > parameter_bounds[j].second) {
+            (*x1)[i][j] = x0[i][j] - delta;
+          }
+        }
+      }
     }
   }
 };
 
-}  // namespace svgd
+} // namespace svgd
 
 #endif
