@@ -39,7 +39,8 @@
 namespace svgd {
 
 namespace kernels {
-template <typename Algebra> struct RBF {
+template <typename Algebra>
+struct RBF {
   using Scalar = typename Algebra::Scalar;
   using VectorX = typename Algebra::VectorX;
 
@@ -76,7 +77,7 @@ template <typename Algebra> struct RBF {
     return {k, -k * (x - y) / (h * h)};
   }
 };
-} // namespace kernels
+}  // namespace kernels
 
 template <typename Algebra,
           typename Particles = std::vector<typename Algebra::VectorX>>
@@ -101,13 +102,13 @@ struct SVGD {
 
   std::vector<std::pair<Scalar, Scalar>> parameter_bounds;
 
-private:
+ private:
   // momentum
   Particles m_;
   // accumulates past gradient variance
   Particles v_;
 
-public:
+ public:
   /**
    * Takes a single step of SVGD
    *
@@ -144,16 +145,24 @@ public:
     }
     ++step;
     Kernel<Algebra> kernel(bandwidth);
-    for (int i = 0; i < x0.size(); ++i) {
-      // Compute phi-star
+    const int n = static_cast<int>(x0.size());
+    for (int i = 0; i < n; ++i) {
       (*x1)[i] = Algebra::zerox(x0[i].size());
-      for (std::size_t j = 0; j < x0.size(); ++j) {
+    }
+#pragma omp parallel for collapse(2)
+    for (int i = 0; i < n; ++i) {
+      // Compute phi-star
+      for (int j = 0; j < n; ++j) {
         const auto &gradlnp = dlnprob(x0[j]);
+        assert(!gradlnp.hasNaN());
         const auto &[kxjxi, gradkxjxi] = kernel.D01(x0[j], x0[i]);
         (*x1)[i] += kxjxi * gradlnp + gradkxjxi;
       }
-      (*x1)[i] /= Algebra::from_double((double)x0.size());
+    }
 
+#pragma omp parallel for
+    for (int i = 0; i < n; ++i) {
+      (*x1)[i] /= Algebra::from_double((double)n);
       // Adam update
       const auto &grad = (*x1)[i];
       m_[i] = beta1 * m_[i] + (one - beta1) * grad;
@@ -180,8 +189,8 @@ public:
       }
     }
   }
-};
+};  // namespace svgd
 
-} // namespace svgd
+}  // namespace svgd
 
 #endif
