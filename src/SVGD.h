@@ -149,12 +149,13 @@ struct SVGD {
     for (int i = 0; i < n; ++i) {
       (*x1)[i] = Algebra::zerox(x0[i].size());
     }
-#pragma omp parallel for collapse(2)
-    for (int i = 0; i < n; ++i) {
-      // Compute phi-star
-      for (int j = 0; j < n; ++j) {
-        const auto &gradlnp = dlnprob(x0[j]);
-        assert(!gradlnp.hasNaN());
+#pragma omp parallel for
+    for (int j = 0; j < n; ++j) {
+      const auto &gradlnp = dlnprob(x0[j]);
+      assert(gradlnp.size() == x0[0].size());
+      assert(!gradlnp.hasNaN());
+      for (int i = 0; i < n; ++i) {
+        // Compute phi-star
         const auto &[kxjxi, gradkxjxi] = kernel.D01(x0[j], x0[i]);
         (*x1)[i] += kxjxi * gradlnp + gradkxjxi;
       }
