@@ -149,9 +149,10 @@ struct SVGD {
     for (int i = 0; i < n; ++i) {
       (*x1)[i] = Algebra::zerox(x0[i].size());
     }
+    const auto &grads = dlnprob(x0);
 #pragma omp parallel for
     for (int j = 0; j < n; ++j) {
-      const auto &gradlnp = dlnprob(x0[j]);
+      const auto &gradlnp = grads[j];
       assert(gradlnp.size() == x0[0].size());
       assert(!gradlnp.hasNaN());
       for (int i = 0; i < n; ++i) {
